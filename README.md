@@ -46,18 +46,3 @@ OPENAI_API_KEY=your_openai_api_key_here
 ```bash
 streamlit run app.py
 ```
-
----
-
-# 16. 실행 순서
-
-처음 실행할 때는 다음 순서대로 실행합니다.
-
-```bash
-streamlit run app.py
-```
-브라우저가 열리면:
-1. 사이드바에서 문서 인덱싱하기 클릭
-2. 인덱싱 완료 확인
-3. 질문 입력
-4. 답변과 출처 확인
