@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# Streamlit
+.streamlit/
+
+# Vector DB
+vectorstore/chroma/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Uploaded local files
+data/uploads/*
+!data/uploads/.gitkeep
