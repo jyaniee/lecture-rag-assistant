@@ -6,7 +6,6 @@ from src.splitter import split_documents
 from src.vector_store import create_vector_store
 from src.rag_chain import ask_question
 
-
 st.set_page_config(
     page_title="강의자료 기반 RAG 학습 도우미",
     page_icon="📚",
@@ -37,7 +36,19 @@ with st.sidebar:
                 chunks = split_documents(documents)
                 create_vector_store(chunks)
 
+                st.session_state["chunks_preview"] = chunks[:5]
+                st.session_state["chunks_count"] = len(chunks)
+
                 st.success(f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개")
+
+    if "chunks_preview" in st.session_state:
+        st.markdown("## 청크 확인")
+        st.write(f"생성된 청크 수: {st.session_state['chunks_count']}개")
+
+        for i, chunk in enumerate(st.session_state["chunks_preview"], start=1):
+            with st.expander(f"청크 미리보기 {i}"):
+                st.write(chunk.page_content)
+                st.caption(chunk.metadata)
 
 
 st.subheader("질문하기")
@@ -69,3 +80,5 @@ if st.button("질문하기", type="primary"):
             except Exception as e:
                 st.error("답변 생성 중 오류가 발생했습니다.")
                 st.exception(e)
+
+

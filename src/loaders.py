@@ -1,12 +1,18 @@
+import re
 from pathlib import Path
 from typing import List
 
 from langchain_core.documents import Document
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt"}
 
+def clean_text(text: str) -> str:
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 def load_documents(data_dir: str) -> List[Document]:
     """
@@ -28,7 +34,7 @@ def load_documents(data_dir: str) -> List[Document]:
             continue
 
         if ext == ".pdf":
-            loader = PyPDFLoader(str(file_path))
+            loader = PyMuPDFLoader(str(file_path))
             loaded_docs = loader.load()
 
         elif ext == ".txt":
@@ -49,4 +55,11 @@ def load_documents(data_dir: str) -> List[Document]:
 
         documents.extend(loaded_docs)
 
+    for doc in loaded_docs:
+        doc.page_content = clean_text(doc.page_content)
+        doc.metadata["source"] = file_path.name
+        doc.metadata["file_path"] = str(file_path)
+
+        if "page" not in doc.metadata:
+            doc.metadata["page"] = None
     return documents
