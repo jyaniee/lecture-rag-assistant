@@ -1,4 +1,5 @@
 from pathlib import Path
+import html
 
 import streamlit as st
 
@@ -15,10 +16,272 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("강의자료 기반 RAG 학습 도우미")
-st.caption(
-    "강의자료를 기반으로 질문에 답변하고, 참고한 문서 출처를 함께 표시합니다."
+
+st.markdown(
+    """
+    <style>
+    .block-container {
+        max-width: 980px;
+        padding-top: 2.2rem;
+        padding-bottom: 6rem;
+    }
+
+    .main-title {
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        margin-bottom: 0.35rem;
+    }
+
+    .main-subtitle {
+        font-size: 1rem;
+        color: #A0AEC0;
+        margin-bottom: 1.2rem;
+        line-height: 1.6;
+    }
+
+    .hero-card {
+        padding: 1.15rem 1.35rem;
+        border-radius: 18px;
+        background: linear-gradient(
+            135deg,
+            rgba(124, 58, 237, 0.22),
+            rgba(37, 99, 235, 0.12)
+        );
+        border: 1px solid rgba(167, 139, 250, 0.28);
+        margin-bottom: 1.5rem;
+    }
+
+    .hero-card-title {
+        font-size: 1.1rem;
+        font-weight: 750;
+        margin-bottom: 0.35rem;
+    }
+
+    .hero-card-desc {
+        color: #CBD5E1;
+        line-height: 1.65;
+        font-size: 0.95rem;
+    }
+
+    .empty-chat-card {
+        padding: 1.2rem 1.35rem;
+        border-radius: 18px;
+        background-color: rgba(15, 23, 42, 0.55);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .empty-chat-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+
+    .empty-chat-desc {
+        color: #A0AEC0;
+        line-height: 1.6;
+        font-size: 0.92rem;
+    }
+
+    .suggestion-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
+        margin-top: 0.9rem;
+    }
+
+    .suggestion-card {
+        padding: 0.8rem 0.9rem;
+        border-radius: 14px;
+        background-color: rgba(30, 41, 59, 0.55);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        color: #CBD5E1;
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    .mode-badge {
+        display: inline-block;
+        padding: 0.25rem 0.65rem;
+        border-radius: 999px;
+        background-color: rgba(167, 139, 250, 0.16);
+        color: #C4B5FD;
+        border: 1px solid rgba(167, 139, 250, 0.28);
+        font-size: 0.82rem;
+        margin-bottom: 0.7rem;
+    }
+
+    .source-header {
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin-top: 1rem;
+        margin-bottom: 0.55rem;
+    }
+
+    .source-card {
+        padding: 0.8rem 0.95rem;
+        border-radius: 14px;
+        background-color: rgba(15, 23, 42, 0.68);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        margin-bottom: 0.55rem;
+    }
+
+    .source-title {
+        font-weight: 700;
+        margin-bottom: 0.2rem;
+        color: #E5E7EB;
+        font-size: 0.92rem;
+    }
+
+    .source-meta {
+        color: #94A3B8;
+        font-size: 0.84rem;
+    }
+
+    .small-muted {
+        color: #94A3B8;
+        font-size: 0.84rem;
+    }
+
+    div[data-testid="stSidebar"] {
+        border-right: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    div[data-testid="stSidebar"] h1,
+    div[data-testid="stSidebar"] h2,
+    div[data-testid="stSidebar"] h3 {
+        letter-spacing: -0.03em;
+    }
+
+    div[data-testid="stButton"] > button {
+        border-radius: 12px;
+        font-weight: 650;
+    }
+
+    div[data-testid="stChatMessage"] {
+        border-radius: 18px;
+        padding: 0.4rem 0;
+    }
+
+    div[data-testid="stChatInput"] textarea {
+        border-radius: 16px;
+        min-height: 48px;
+    }
+
+    div[data-testid="stExpander"] {
+        border-radius: 14px;
+        border-color: rgba(148, 163, 184, 0.22);
+    }
+
+    @media (max-width: 760px) {
+        .suggestion-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .main-title {
+            font-size: 1.8rem;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
+
+
+def get_available_files() -> list[Path]:
+    data_path = Path(DATA_DIR)
+    files = []
+
+    if not data_path.exists():
+        return files
+
+    for file_path in data_path.rglob("*"):
+        if file_path.is_file() and file_path.suffix.lower() in [".pdf", ".txt"]:
+            files.append(file_path)
+
+    return sorted(files)
+
+
+def render_sources(sources: list[dict]) -> None:
+    if not sources:
+        st.info("표시할 참고 자료가 없습니다.")
+        return
+
+    st.markdown('<div class="source-header">참고한 자료</div>', unsafe_allow_html=True)
+
+    for i, source in enumerate(sources, start=1):
+        page_text = (
+            f"p.{source['page']}"
+            if source.get("page")
+            else "페이지 정보 없음"
+        )
+
+        subject = html.escape(source.get("subject", "과목 정보 없음"))
+        file_name = html.escape(
+            source.get("file_name", source.get("source", "알 수 없는 문서"))
+        )
+
+        st.markdown(
+            f"""
+            <div class="source-card">
+                <div class="source-title">{i}. {file_name}</div>
+                <div class="source-meta">과목: {subject} · 페이지: {page_text}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_debug_scores(debug_scores: list[dict]) -> None:
+    with st.expander("검색 유사도 점수"):
+        st.caption("점수가 낮을수록 질문과 문서의 관련도가 높습니다.")
+        st.write(debug_scores)
+
+
+def render_assistant_message(message: dict) -> None:
+    st.markdown(
+        f'<div class="mode-badge">답변 모드: {html.escape(message.get("answer_mode", "기본 Q&A"))}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if message.get("is_rejected"):
+        st.warning(message["content"])
+    else:
+        st.write(message["content"])
+
+    render_debug_scores(message.get("debug_scores", []))
+
+    if message.get("sources"):
+        render_sources(message["sources"])
+    elif message.get("is_rejected"):
+        st.info("표시할 참고 자료가 없습니다.")
+
+
+def render_empty_chat() -> None:
+    st.markdown(
+        """
+        <div class="empty-chat-card">
+            <div class="empty-chat-title">강의자료에 대해 질문해보세요.</div>
+            <div class="empty-chat-desc">
+                인덱싱된 강의자료를 기반으로 답변합니다.
+                개념 설명, 시험 대비 요약, 예상 문제 생성처럼 학습 목적에 맞게 사용할 수 있습니다.
+            </div>
+            <div class="suggestion-grid">
+                <div class="suggestion-card">LLM의 개념을 설명해줘.</div>
+                <div class="suggestion-card">RAG가 환각을 줄이는 원리를 설명해줘.</div>
+                <div class="suggestion-card">벡터 DB가 필요한 이유를 설명해줘.</div>
+                <div class="suggestion-card">문서 기반 RAG 챗봇 구축 과정을 요약해줘.</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
 
 
 with st.sidebar:
@@ -27,18 +290,12 @@ with st.sidebar:
     st.markdown("### 자료 경로")
     st.code(DATA_DIR)
 
-    st.markdown("### 현재 인식 가능한 자료")
-
+    st.markdown("### 인식된 자료")
+    files = get_available_files()
     data_path = Path(DATA_DIR)
-    files = []
-
-    if data_path.exists():
-        for file_path in data_path.rglob("*"):
-            if file_path.is_file() and file_path.suffix.lower() in [".pdf", ".txt"]:
-                files.append(file_path)
 
     if files:
-        for file_path in sorted(files):
+        for file_path in files:
             st.caption(f"- {file_path.relative_to(data_path)}")
     else:
         st.caption("아직 인식 가능한 PDF/TXT 자료가 없습니다.")
@@ -52,7 +309,7 @@ with st.sidebar:
         help="기존 Chroma DB를 삭제하고 새로 인덱싱합니다.",
     )
 
-    if st.button("문서 인덱싱하기"):
+    if st.button("문서 인덱싱하기", use_container_width=True):
         with st.spinner("문서를 불러오고 벡터 DB를 생성하는 중입니다..."):
             if reset_db:
                 reset_vector_store()
@@ -74,6 +331,19 @@ with st.sidebar:
                     f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개"
                 )
 
+    if "chunks_count" in st.session_state:
+        st.caption(f"최근 생성된 청크 수: {st.session_state['chunks_count']}개")
+
+    with st.expander("청크 미리보기", expanded=False):
+        if "chunks_preview" in st.session_state:
+            for i, chunk in enumerate(st.session_state["chunks_preview"], start=1):
+                st.markdown(f"**청크 {i}**")
+                st.write(chunk.page_content)
+                st.caption(chunk.metadata)
+                st.markdown("---")
+        else:
+            st.caption("인덱싱 후 청크 미리보기가 표시됩니다.")
+
     st.markdown("---")
     st.markdown("### 답변 설정")
 
@@ -82,63 +352,96 @@ with st.sidebar:
         ["기본 Q&A", "개념 설명", "시험 대비 요약", "예상 문제 생성"],
     )
 
+    st.markdown("---")
+    st.markdown("### 대화")
 
-if "chunks_preview" in st.session_state:
-    st.markdown("## 청크 확인")
-    st.write(f"생성된 청크 수: {st.session_state['chunks_count']}개")
-
-    for i, chunk in enumerate(st.session_state["chunks_preview"], start=1):
-        with st.expander(f"청크 미리보기 {i}"):
-            st.write(chunk.page_content)
-            st.caption(chunk.metadata)
+    if st.button("대화 초기화", use_container_width=True):
+        st.session_state["chat_history"] = []
+        st.rerun()
 
 
-st.markdown("## 질문하기")
-
-question = st.text_input(
-    "강의자료에 대해 질문을 입력하세요.",
-    placeholder="예: RAG가 환각을 줄이는 원리를 설명해줘.",
+st.markdown(
+    """
+    <div class="main-title">강의자료 기반 RAG 학습 도우미</div>
+    <div class="main-subtitle">
+        강의자료를 검색해 근거 기반 답변, 요약, 예상 문제 생성을 지원합니다.
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-if st.button("질문하기", type="primary"):
-    if not question.strip():
-        st.warning("질문을 입력해주세요.")
-    else:
+st.markdown(
+    """
+    <div class="hero-card">
+        <div class="hero-card-title">자료에 근거한 학습형 AI Assistant</div>
+        <div class="hero-card-desc">
+            질문과 관련된 강의자료를 벡터 DB에서 검색한 뒤 답변합니다.
+            검색 유사도가 낮은 질문은 답변을 제한하여 환각 가능성을 줄입니다.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+if not st.session_state["chat_history"]:
+    render_empty_chat()
+
+
+for message in st.session_state["chat_history"]:
+    with st.chat_message(message["role"]):
+        if message["role"] == "user":
+            st.write(message["content"])
+        else:
+            render_assistant_message(message)
+
+
+prompt = st.chat_input(
+    "강의자료에 대해 질문해보세요. 예: RAG가 환각을 줄이는 원리를 설명해줘."
+)
+
+if prompt:
+    user_message = {
+        "role": "user",
+        "content": prompt,
+    }
+
+    st.session_state["chat_history"].append(user_message)
+
+    with st.chat_message("user"):
+        st.write(prompt)
+
+    with st.chat_message("assistant"):
         with st.spinner("답변을 생성하는 중입니다..."):
             try:
-                result = ask_question(question, answer_mode)
+                result = ask_question(prompt, answer_mode)
 
-                st.markdown("## 답변")
-                st.caption(f"답변 모드: {result['answer_mode']}")
+                assistant_message = {
+                    "role": "assistant",
+                    "content": result["answer"],
+                    "answer_mode": result.get("answer_mode", answer_mode),
+                    "sources": result.get("sources", []),
+                    "debug_scores": result.get("debug_scores", []),
+                    "is_rejected": result.get("is_rejected", False),
+                }
 
-                if result.get("is_rejected"):
-                    st.warning(result["answer"])
-                else:
-                    st.write(result["answer"])
+                render_assistant_message(assistant_message)
 
-                with st.expander("검색 점수 디버그"):
-                    st.write(result.get("debug_scores", []))
-                    
-                if result["sources"]:
-                    st.markdown("## 참고한 자료")
-                    # st.write(result["sources"])
-
-                    for i, source in enumerate(result["sources"], start=1):
-                        page_text = (
-                            f"p.{source['page']}"
-                            if source["page"]
-                            else "페이지 정보 없음"
-                        )
-
-                        subject = source.get("subject", "과목 정보 없음")
-                        file_name = source.get("file_name", source.get("source", "알 수 없는 문서"))
-
-                        with st.container(border=True):
-                            st.markdown(f"**{i}. {file_name}**")
-                            st.caption(f"과목: {subject} · 페이지: {page_text}")
-                else:
-                    st.info("표시할 참고 자료가 없습니다.")
+                st.session_state["chat_history"].append(assistant_message)
 
             except Exception as e:
-                st.error("답변 생성 중 오류가 발생했습니다.")
+                error_message = "답변 생성 중 오류가 발생했습니다."
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": error_message,
+                    "answer_mode": answer_mode,
+                    "sources": [],
+                    "debug_scores": [],
+                    "is_rejected": True,
+                }
+
+                st.error(error_message)
                 st.exception(e)
+
+                st.session_state["chat_history"].append(assistant_message)
