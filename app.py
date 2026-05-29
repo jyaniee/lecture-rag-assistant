@@ -5,7 +5,7 @@ import streamlit as st
 from src.config import DATA_DIR
 from src.loaders import load_documents
 from src.splitter import split_documents
-from src.vector_store import create_vector_store, reset_vertor_store
+from src.vector_store import create_vector_store, reset_vector_store
 from src.rag_chain import ask_question
 
 
@@ -24,7 +24,7 @@ st.caption(
 with st.sidebar:
     st.header("설정")
 
-    st.write("현재 구현은 `data/raw` 폴더의 PDF/TXT 파일을 사용합니다.")
+    st.markdown("### 자료 경로")
     st.code(DATA_DIR)
 
     st.markdown("### 현재 인식 가능한 자료")
@@ -43,6 +43,9 @@ with st.sidebar:
     else:
         st.caption("아직 인식 가능한 PDF/TXT 자료가 없습니다.")
 
+    st.markdown("---")
+    st.markdown("### 인덱싱")
+
     reset_db = st.checkbox(
         "기존 벡터 DB 초기화 후 재인덱싱",
         value=True,
@@ -52,12 +55,14 @@ with st.sidebar:
     if st.button("문서 인덱싱하기"):
         with st.spinner("문서를 불러오고 벡터 DB를 생성하는 중입니다..."):
             if reset_db:
-                reset_vertor_store()
+                reset_vector_store()
 
             documents = load_documents(DATA_DIR)
 
             if not documents:
-                st.warning("불러올 문서가 없습니다. data/raw 폴더에 PDF 또는 TXT 파일을 넣어주세요.")
+                st.warning(
+                    "불러올 문서가 없습니다. data/raw 폴더에 PDF 또는 TXT 파일을 넣어주세요."
+                )
             else:
                 chunks = split_documents(documents)
                 create_vector_store(chunks)
@@ -68,6 +73,14 @@ with st.sidebar:
                 st.success(
                     f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개"
                 )
+
+    st.markdown("---")
+    st.markdown("### 답변 설정")
+
+    answer_mode = st.selectbox(
+        "답변 모드",
+        ["기본 Q&A", "개념 설명", "시험 대비 요약", "예상 문제 생성"],
+    )
 
 
 if "chunks_preview" in st.session_state:
@@ -80,11 +93,11 @@ if "chunks_preview" in st.session_state:
             st.caption(chunk.metadata)
 
 
-st.subheader("질문하기")
+st.markdown("## 질문하기")
 
 question = st.text_input(
     "강의자료에 대해 질문을 입력하세요.",
-    placeholder="예: RAG의 핵심 과정은 무엇인가요?",
+    placeholder="예: RAG가 환각을 줄이는 원리를 설명해줘.",
 )
 
 if st.button("질문하기", type="primary"):
@@ -93,15 +106,20 @@ if st.button("질문하기", type="primary"):
     else:
         with st.spinner("답변을 생성하는 중입니다..."):
             try:
-                result = ask_question(question)
+                result = ask_question(question, answer_mode)
 
                 st.markdown("## 답변")
+                st.caption(f"답변 모드: {result['answer_mode']}")
                 st.write(result["answer"])
 
                 st.markdown("## 참고한 자료")
 
                 for i, source in enumerate(result["sources"], start=1):
-                    page_text = f"p.{source['page']}" if source["page"] else "페이지 정보 없음"
+                    page_text = (
+                        f"p.{source['page']}"
+                        if source["page"]
+                        else "페이지 정보 없음"
+                    )
 
                     with st.expander(f"{i}. {source['source']} / {page_text}"):
                         st.write(source["content"])

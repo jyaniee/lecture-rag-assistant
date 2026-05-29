@@ -47,7 +47,7 @@ def format_sources(documents: List[Document]) -> List[Dict[str, Any]]:
     return sources
 
 
-def ask_question(question: str) -> Dict[str, Any]:
+def ask_question(question: str, answer_mode: str = "기본 Q&A") -> Dict[str, Any]:
     """
     질문을 받아 RAG 방식으로 답변과 출처를 반환합니다.
     """
@@ -70,4 +70,5 @@ def ask_question(question: str) -> Dict[str, Any]:
     return {
         "answer": response.content,
         "sources": format_sources(docs),
+        "answer_mode": answer_mode,
     }

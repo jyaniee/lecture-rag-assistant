@@ -13,7 +13,7 @@ def get_embedding_model() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
     # OpenAI 임베딩 모델 생성
 
-def reset_vertor_store() -> None:
+def reset_vector_store() -> None:
     chroma_path = Path(CHROMA_DIR)
 
     if chroma_path.exists():
