@@ -1,4 +1,6 @@
 from typing import List
+from pathlib import Path
+import shutil
 
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -9,14 +11,16 @@ from src.config import CHROMA_DIR, OPENAI_EMBEDDING_MODEL
 
 def get_embedding_model() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(model=OPENAI_EMBEDDING_MODEL)
+    # OpenAI 임베딩 모델 생성
 
+def reset_vector_store() -> None:
+    chroma_path = Path(CHROMA_DIR)
 
-def create_vector_store(documents: List[Document]) -> Chroma:
-    """
-    문서 청크를 임베딩한 뒤 Chroma DB에 저장합니다.
-    기존 DB가 있으면 덮어쓰기보다는 같은 경로에 추가될 수 있으므로,
-    필요하면 vectorstore/chroma 폴더를 삭제한 뒤 재생성하세요.
-    """
+    if chroma_path.exists():
+        shutil.rmtree(chroma_path)
+        # 저장된 Chroma DB 디렉터리 삭제
+
+def create_vector_store(documents: List[Document]) -> Chroma:   # 문서 청크 목록을 Chroma 벡터 저장소에 저장
     embeddings = get_embedding_model()
 
     vector_store = Chroma.from_documents(
@@ -29,9 +33,7 @@ def create_vector_store(documents: List[Document]) -> Chroma:
 
 
 def load_vector_store() -> Chroma:
-    """
-    이미 생성된 Chroma DB를 불러옵니다.
-    """
+    # 저장된 Chroma 벡터 저장소를 로드
     embeddings = get_embedding_model()
 
     return Chroma(
