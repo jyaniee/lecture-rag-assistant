@@ -20,6 +20,32 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(88, 28, 135, 0.32), transparent 42%),
+            radial-gradient(circle at top right, rgba(30, 64, 175, 0.18), transparent 36%),
+            linear-gradient(180deg, #05070D 0%, #080B12 50%, #0B0F19 100%);
+        color: #E5E7EB;
+    }
+    header[data-testid="stHeader"] {
+        background: transparent;
+    }
+
+    header[data-testid="stHeader"] > div {
+        background: transparent;
+    }
+
+    div[data-testid="stToolbar"] {
+        background: transparent;
+    }
+
+    div[data-testid="stToolbar"] * {
+        background: transparent;
+    }
+
+    div[data-testid="stDecoration"] {
+        background: transparent;
+    }
     .block-container {
         max-width: 980px;
         padding-top: 2.2rem;
@@ -145,14 +171,127 @@ st.markdown(
         font-size: 0.84rem;
     }
 
+    /* 사이드바 전체 */
     div[data-testid="stSidebar"] {
-        border-right: 1px solid rgba(148, 163, 184, 0.18);
+        background:
+            linear-gradient(180deg, rgba(3, 7, 18, 0.96) 0%, rgba(8, 13, 24, 0.94) 48%, rgba(3, 7, 18, 0.98) 100%);
+        border-right: 1px solid rgba(139, 92, 246, 0.14);
     }
 
-    div[data-testid="stSidebar"] h1,
-    div[data-testid="stSidebar"] h2,
+    /* 사이드바 실제 콘텐츠 영역 */
+    div[data-testid="stSidebarContent"] {
+        background:
+            radial-gradient(circle at top left, rgba(88, 28, 135, 0.20), transparent 38%),
+            linear-gradient(180deg, rgba(15, 23, 42, 0.42), rgba(3, 7, 18, 0.32));
+        padding: 1.4rem 1.05rem;
+    }
+
+    /* 사이드바 제목 */
+    div[data-testid="stSidebar"] h1 {
+        font-size: 1.25rem;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #F8FAFC;
+        margin-bottom: 1rem;
+    }
+
+    /* 사이드바 섹션 제목 */
     div[data-testid="stSidebar"] h3 {
-        letter-spacing: -0.03em;
+        font-size: 0.86rem;
+        font-weight: 750;
+        letter-spacing: -0.02em;
+        color: #DDD6FE;
+        margin-top: 0.9rem;
+        margin-bottom: 0.45rem;
+    }
+
+    /* 사이드바 일반 텍스트 */
+    div[data-testid="stSidebar"] p,
+    div[data-testid="stSidebar"] span,
+    div[data-testid="stSidebar"] label {
+        color: #CBD5E1;
+    }
+
+    /* 사이드바 caption */
+    div[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: #94A3B8;
+    }
+
+    /* 사이드바 버튼 */
+    div[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(88, 28, 135, 0.72), rgba(30, 64, 175, 0.48));
+        border: 1px solid rgba(167, 139, 250, 0.28);
+        color: #F8FAFC;
+        font-weight: 700;
+        transition: 0.15s ease;
+    }
+
+    div[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        border-color: rgba(196, 181, 253, 0.58);
+        background: linear-gradient(135deg, rgba(109, 40, 217, 0.82), rgba(37, 99, 235, 0.58));
+        transform: translateY(-1px);
+    }
+
+    /* 사이드바 selectbox */
+    div[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background-color: rgba(15, 23, 42, 0.78);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 12px;
+        color: #E5E7EB;
+    }
+
+    div[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
+        border-color: rgba(167, 139, 250, 0.36);
+    }
+
+    /* 사이드바 expander */
+    div[data-testid="stSidebar"] div[data-testid="stExpander"] {
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.10);
+        background-color: rgba(15, 23, 42, 0.34);
+        margin-bottom: 0.45rem;
+    }
+
+    div[data-testid="stSidebar"] div[data-testid="stExpander"] summary {
+        color: #CBD5E1;
+        font-weight: 650;
+        font-size: 0.86rem;
+    }
+
+    /* 사이드바 파일 목록 */
+    .file-item {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.34rem 0.45rem;
+        border-radius: 8px;
+        color: #CBD5E1;
+        font-size: 0.82rem;
+        line-height: 1.35;
+        margin-bottom: 0.15rem;
+    }
+
+    .file-item:hover {
+        background-color: rgba(148, 163, 184, 0.10);
+    }
+
+    .file-icon {
+        opacity: 0.8;
+        font-size: 0.82rem;
+        flex-shrink: 0;
+    }
+
+    .file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* 구분선 */
+    div[data-testid="stSidebar"] hr {
+        border-color: rgba(148, 163, 184, 0.14);
+        margin: 1.15rem 0;
     }
 
     div[data-testid="stButton"] > button {
@@ -202,6 +341,23 @@ def get_available_files() -> list[Path]:
             files.append(file_path)
 
     return sorted(files)
+
+def group_files_by_subject(files: list[Path]) -> dict[str, list[Path]]:
+    """파일 목록을 과목 폴더 기준으로 그룹화한다."""
+    data_path = Path(DATA_DIR)
+    grouped_files = {}
+
+    for file_path in files:
+        relative_path = file_path.relative_to(data_path)
+
+        if len(relative_path.parts) >= 2:
+            subject = relative_path.parts[0]
+        else:
+            subject = "기타"
+
+        grouped_files.setdefault(subject, []).append(file_path)
+
+    return grouped_files
 
 
 def render_sources(sources: list[dict]) -> None:
@@ -295,8 +451,24 @@ with st.sidebar:
     data_path = Path(DATA_DIR)
 
     if files:
-        for file_path in files:
-            st.caption(f"- {file_path.relative_to(data_path)}")
+        grouped_files = group_files_by_subject(files)
+
+        st.caption(f"{len(files)}개 문서 인식됨")
+
+        for subject, subject_files in grouped_files.items():
+            with st.expander(f"{subject} ({len(subject_files)})", expanded=False):
+                for file_path in subject_files:
+                    relative_path = file_path.relative_to(data_path)
+                    file_name = file_path.name
+
+                    st.markdown(
+                        f"""
+                        <div class="file-item">
+                            <span class="file-name">{html.escape(file_name)}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
     else:
         st.caption("아직 인식 가능한 PDF/TXT 자료가 없습니다.")
 
