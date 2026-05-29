@@ -113,6 +113,7 @@ if st.button("질문하기", type="primary"):
                 st.write(result["answer"])
 
                 st.markdown("## 참고한 자료")
+                # st.write(result["sources"])
 
                 for i, source in enumerate(result["sources"], start=1):
                     page_text = (
@@ -121,8 +122,12 @@ if st.button("질문하기", type="primary"):
                         else "페이지 정보 없음"
                     )
 
-                    with st.expander(f"{i}. {source['source']} / {page_text}"):
-                        st.write(source["content"])
+                    subject = source.get("subject", "과목 정보 없음")
+                    file_name = source.get("file_name", source.get("source", "알 수 없는 문서"))
+
+                    with st.container(border=True):
+                        st.markdown(f"**{i}. {file_name}**")
+                        st.caption(f"과목: {subject} · 페이지: {page_text}")
 
             except Exception as e:
                 st.error("답변 생성 중 오류가 발생했습니다.")

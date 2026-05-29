@@ -1,3 +1,5 @@
+import re
+from pathlib import Path
 from typing import Dict, Any, List
 
 from langchain_core.documents import Document
@@ -5,6 +7,22 @@ from langchain_core.documents import Document
 from src.generator import get_llm, build_prompt
 from src.retriever import get_retriever
 
+
+def clean_preview_text(text: str, max_length: int = 500) -> str:
+    """UI 표시용 문서 내용을 정리합니다."""
+    remove_chars = ["■", "□", "▪", "▫", "●", "○", "◆", "◇", "•", "·"]
+
+    for char in remove_chars:
+        text = text.replace(char, " ")
+
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip()
+
+    if len(text) > max_length:
+        text = text[:max_length].rstrip() + "..."
+
+    return text
 
 def format_documents(documents: List[Document]) -> str:
     """
@@ -36,11 +54,22 @@ def format_sources(documents: List[Document]) -> List[Dict[str, Any]]:
         source = doc.metadata.get("source", "알 수 없는 문서")
         page = doc.metadata.get("page", None)
 
+        source_path = Path(source)
+        subject = doc.metadata.get("subject") or source_path.parent.name
+        file_name = doc.metadata.get("file_name") or source_path.name
+        
+        if not subject or subject == ".":
+            subject = "과목 정보 없음"
+
+        preview = clean_preview_text(doc.page_content)
+
         sources.append(
             {
+                "subject": subject,
+                "file_name": file_name,
                 "source": source,
                 "page": page + 1 if isinstance(page, int) else None,
-                "content": doc.page_content[:500],
+                "content": preview,
             }
         )
 

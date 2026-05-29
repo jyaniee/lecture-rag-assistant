@@ -44,9 +44,13 @@ def load_documents(data_dir: str) -> List[Document]:
         else:
             continue
 
+        subject = file_path.parent.name
+        file_name = file_path.name
+
         for doc in loaded_docs:
             doc.metadata["source"] = file_path.name
             doc.metadata["file_path"] = str(file_path)
+            doc.metadata["subject"] = subject
 
             # PDF는 PyPDFLoader가 page metadata를 넣어주는 경우가 많음
             # TXT는 page 개념이 없으므로 기본값 처리
@@ -57,8 +61,9 @@ def load_documents(data_dir: str) -> List[Document]:
 
     for doc in loaded_docs:
         doc.page_content = clean_text(doc.page_content)
-        doc.metadata["source"] = file_path.name
-        doc.metadata["file_path"] = str(file_path)
+        doc.metadata["subject"] = subject
+        doc.metadata["file_name"] = file_name
+        doc.metadata["source"] = str(file_path)
 
         if "page" not in doc.metadata:
             doc.metadata["page"] = None
