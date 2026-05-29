@@ -110,24 +110,34 @@ if st.button("질문하기", type="primary"):
 
                 st.markdown("## 답변")
                 st.caption(f"답변 모드: {result['answer_mode']}")
-                st.write(result["answer"])
 
-                st.markdown("## 참고한 자료")
-                # st.write(result["sources"])
+                if result.get("is_rejected"):
+                    st.warning(result["answer"])
+                else:
+                    st.write(result["answer"])
 
-                for i, source in enumerate(result["sources"], start=1):
-                    page_text = (
-                        f"p.{source['page']}"
-                        if source["page"]
-                        else "페이지 정보 없음"
-                    )
+                with st.expander("검색 점수 디버그"):
+                    st.write(result.get("debug_scores", []))
+                    
+                if result["sources"]:
+                    st.markdown("## 참고한 자료")
+                    # st.write(result["sources"])
 
-                    subject = source.get("subject", "과목 정보 없음")
-                    file_name = source.get("file_name", source.get("source", "알 수 없는 문서"))
+                    for i, source in enumerate(result["sources"], start=1):
+                        page_text = (
+                            f"p.{source['page']}"
+                            if source["page"]
+                            else "페이지 정보 없음"
+                        )
 
-                    with st.container(border=True):
-                        st.markdown(f"**{i}. {file_name}**")
-                        st.caption(f"과목: {subject} · 페이지: {page_text}")
+                        subject = source.get("subject", "과목 정보 없음")
+                        file_name = source.get("file_name", source.get("source", "알 수 없는 문서"))
+
+                        with st.container(border=True):
+                            st.markdown(f"**{i}. {file_name}**")
+                            st.caption(f"과목: {subject} · 페이지: {page_text}")
+                else:
+                    st.info("표시할 참고 자료가 없습니다.")
 
             except Exception as e:
                 st.error("답변 생성 중 오류가 발생했습니다.")

@@ -5,8 +5,18 @@ from typing import Dict, Any, List
 from langchain_core.documents import Document
 
 from src.generator import get_llm, build_prompt
-from src.retriever import get_retriever
+from src.retriever import get_retriever, search_documents_with_score
 
+RELEVANCE_SCORE_THRESHOLD = 1.2
+
+def is_low_relevance(search_results, threshold: float = RELEVANCE_SCORE_THRESHOLD) -> bool:
+    """검색 결과의 관련도가 낮은지 판단합니다."""
+    if not search_results:
+        return True
+    
+    best_score = search_results[0][1]
+
+    return best_score > threshold
 
 def clean_preview_text(text: str, max_length: int = 500) -> str:
     """UI 표시용 문서 내용을 정리합니다."""
@@ -80,12 +90,32 @@ def ask_question(question: str, answer_mode: str = "기본 Q&A") -> Dict[str, An
     """
     질문을 받아 RAG 방식으로 답변과 출처를 반환합니다.
     """
-    retriever = get_retriever()
-    docs = retriever.invoke(question)
+    search_results = search_documents_with_score(question, k=4)
+
+    debug_scores = [
+        {
+            "file_name": doc.metadata.get("file_name", doc.metadata.get("source", "알 수 없는 문서")),
+            "page": doc.metadata.get("page"),
+            "score": score,
+        }
+        for doc, score in search_results
+    ]
+
+    if is_low_relevance(search_results):
+        return {
+            "answer": "제공된 강의자료에서 질문과 관련된 내용을 찾기 어렵습니다.",
+            "sources": [],
+            "answer_mode": answer_mode,
+            "is_rejected": True,
+            "debug_scores": debug_scores,
+        }
+    # retriever = get_retriever()
+    # docs = retriever.invoke(question)
+    docs = [doc for doc, _score in search_results]
 
     context = format_documents(docs)
 
-    prompt = build_prompt()
+    prompt = build_prompt(answer_mode)
     llm = get_llm()
 
     chain = prompt | llm
@@ -100,4 +130,6 @@ def ask_question(question: str, answer_mode: str = "기본 Q&A") -> Dict[str, An
         "answer": response.content,
         "sources": format_sources(docs),
         "answer_mode": answer_mode,
+        "is_rejected": False,
+        "debug_scores": debug_scores,
     }
