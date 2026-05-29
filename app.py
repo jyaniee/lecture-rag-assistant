@@ -391,19 +391,37 @@ def render_sources(sources: list[dict]) -> None:
         st.info("표시할 참고 자료가 없습니다.")
         return
 
+    grouped_sources = {}
+
+    for source in sources:
+        subject = source.get("subject", "과목 정보 없음")
+        file_name = source.get("file_name", source.get("source", "알 수 없는 문서"))
+        page = source.get("page")
+
+        key = (subject, file_name)
+
+        if key not in grouped_sources:
+            grouped_sources[key] = {
+                "subject": subject,
+                "file_name": file_name,
+                "pages": set(),
+            }
+
+        if page:
+            grouped_sources[key]["pages"].add(page)
+
     st.markdown('<div class="source-header">참고한 자료</div>', unsafe_allow_html=True)
 
-    for i, source in enumerate(sources, start=1):
-        page_text = (
-            f"p.{source['page']}"
-            if source.get("page")
-            else "페이지 정보 없음"
-        )
+    for i, source in enumerate(grouped_sources.values(), start=1):
+        subject = html.escape(source["subject"])
+        file_name = html.escape(source["file_name"])
 
-        subject = html.escape(source.get("subject", "과목 정보 없음"))
-        file_name = html.escape(
-            source.get("file_name", source.get("source", "알 수 없는 문서"))
-        )
+        pages = sorted(source["pages"])
+
+        if pages:
+            page_text = ", ".join(f"p.{page}" for page in pages)
+        else:
+            page_text = "페이지 정보 없음"
 
         st.markdown(
             f"""
