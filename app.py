@@ -197,18 +197,20 @@ st.markdown(
 
     /* 사이드바 섹션 제목 */
     div[data-testid="stSidebar"] h3 {
-        font-size: 0.86rem;
-        font-weight: 750;
-        letter-spacing: -0.02em;
+        font-size: 0.95rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
         color: #DDD6FE;
-        margin-top: 0.9rem;
-        margin-bottom: 0.45rem;
+        margin-top: 1.15rem;
+        margin-bottom: 0.55rem;
     }
 
     /* 사이드바 일반 텍스트 */
     div[data-testid="stSidebar"] p,
     div[data-testid="stSidebar"] span,
     div[data-testid="stSidebar"] label {
+        font-size: 0.82rem;
+        line-height: 1.4;
         color: #CBD5E1;
     }
 
@@ -323,6 +325,30 @@ st.markdown(
             font-size: 1.8rem;
         }
     }
+    /* 사용자 메시지 우측 정렬 */
+    .user-message-row {
+        display: flex;
+        justify-content: flex-end;
+        margin: 0.75rem 0;
+    }
+
+    .user-message-bubble {
+        max-width: 72%;
+        padding: 0.85rem 1rem;
+        border-radius: 18px 18px 4px 18px;
+        background:
+            linear-gradient(
+                135deg,
+                rgba(124, 58, 237, 0.34),
+                rgba(37, 99, 235, 0.20)
+            ),
+            rgba(15, 23, 42, 0.84);
+        border: 1px solid rgba(167, 139, 250, 0.28);
+        color: #F8FAFC;
+        line-height: 1.6;
+        font-size: 0.95rem;
+        word-break: break-word;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -395,6 +421,17 @@ def render_debug_scores(debug_scores: list[dict]) -> None:
         st.caption("점수가 낮을수록 질문과 문서의 관련도가 높습니다.")
         st.write(debug_scores)
 
+def render_user_message(content: str) -> None:
+    st.markdown(
+        f"""
+        <div class="user-message-row">
+            <div class="user-message-bubble">
+                {html.escape(content)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def render_assistant_message(message: dict) -> None:
     st.markdown(
@@ -446,6 +483,7 @@ with st.sidebar:
     st.markdown("### 자료 경로")
     st.code(DATA_DIR)
 
+    st.markdown("---")
     st.markdown("### 인식된 자료")
     files = get_available_files()
     data_path = Path(DATA_DIR)
@@ -561,15 +599,15 @@ if not st.session_state["chat_history"]:
 
 
 for message in st.session_state["chat_history"]:
-    with st.chat_message(message["role"]):
-        if message["role"] == "user":
-            st.write(message["content"])
-        else:
+    if message["role"] == "user":
+        render_user_message(message["content"])
+    else:
+        with st.chat_message("assistant"):
             render_assistant_message(message)
 
 
 prompt = st.chat_input(
-    "강의자료에 대해 질문해보세요. 예: RAG가 환각을 줄이는 원리를 설명해줘."
+    "강의자료에 대해 질문해보세요. 예: LLM의 개념을 설명해줘."
 )
 
 if prompt:
@@ -580,8 +618,7 @@ if prompt:
 
     st.session_state["chat_history"].append(user_message)
 
-    with st.chat_message("user"):
-        st.write(prompt)
+    render_user_message(prompt)
 
     with st.chat_message("assistant"):
         with st.spinner("답변을 생성하는 중입니다..."):
