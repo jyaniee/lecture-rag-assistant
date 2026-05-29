@@ -1,20 +1,21 @@
+from pathlib import Path
+
 import streamlit as st
 
 from src.config import DATA_DIR
 from src.loaders import load_documents
 from src.splitter import split_documents
-from src.vector_store import create_vector_store
+from src.vector_store import create_vector_store, reset_vertor_store
 from src.rag_chain import ask_question
+
 
 st.set_page_config(
     page_title="강의자료 기반 RAG 학습 도우미",
-    page_icon="📚",
+    page_icon="",
     layout="wide",
 )
 
-
-st.title("📚 강의자료 기반 RAG 학습 도우미")
-
+st.title("강의자료 기반 RAG 학습 도우미")
 st.caption(
     "강의자료를 기반으로 질문에 답변하고, 참고한 문서 출처를 함께 표시합니다."
 )
@@ -23,11 +24,36 @@ st.caption(
 with st.sidebar:
     st.header("설정")
 
-    st.write("현재 1차 구현은 `data/raw` 폴더의 PDF/TXT 파일을 사용합니다.")
+    st.write("현재 구현은 `data/raw` 폴더의 PDF/TXT 파일을 사용합니다.")
     st.code(DATA_DIR)
 
-    if st.button("📦 문서 인덱싱하기"):
+    st.markdown("### 현재 인식 가능한 자료")
+
+    data_path = Path(DATA_DIR)
+    files = []
+
+    if data_path.exists():
+        for file_path in data_path.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in [".pdf", ".txt"]:
+                files.append(file_path)
+
+    if files:
+        for file_path in sorted(files):
+            st.caption(f"- {file_path.relative_to(data_path)}")
+    else:
+        st.caption("아직 인식 가능한 PDF/TXT 자료가 없습니다.")
+
+    reset_db = st.checkbox(
+        "기존 벡터 DB 초기화 후 재인덱싱",
+        value=True,
+        help="기존 Chroma DB를 삭제하고 새로 인덱싱합니다.",
+    )
+
+    if st.button("문서 인덱싱하기"):
         with st.spinner("문서를 불러오고 벡터 DB를 생성하는 중입니다..."):
+            if reset_db:
+                reset_vertor_store()
+
             documents = load_documents(DATA_DIR)
 
             if not documents:
@@ -39,16 +65,19 @@ with st.sidebar:
                 st.session_state["chunks_preview"] = chunks[:5]
                 st.session_state["chunks_count"] = len(chunks)
 
-                st.success(f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개")
+                st.success(
+                    f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개"
+                )
 
-    if "chunks_preview" in st.session_state:
-        st.markdown("## 청크 확인")
-        st.write(f"생성된 청크 수: {st.session_state['chunks_count']}개")
 
-        for i, chunk in enumerate(st.session_state["chunks_preview"], start=1):
-            with st.expander(f"청크 미리보기 {i}"):
-                st.write(chunk.page_content)
-                st.caption(chunk.metadata)
+if "chunks_preview" in st.session_state:
+    st.markdown("## 청크 확인")
+    st.write(f"생성된 청크 수: {st.session_state['chunks_count']}개")
+
+    for i, chunk in enumerate(st.session_state["chunks_preview"], start=1):
+        with st.expander(f"청크 미리보기 {i}"):
+            st.write(chunk.page_content)
+            st.caption(chunk.metadata)
 
 
 st.subheader("질문하기")
@@ -80,5 +109,3 @@ if st.button("질문하기", type="primary"):
             except Exception as e:
                 st.error("답변 생성 중 오류가 발생했습니다.")
                 st.exception(e)
-
-
