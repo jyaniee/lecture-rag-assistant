@@ -26,3 +26,6 @@ Thumbs.db
 # Uploaded local files
 data/uploads/*
 !data/uploads/.gitkeep
+
+#docs
+docs/
