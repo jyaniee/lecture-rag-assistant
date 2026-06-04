@@ -3,11 +3,11 @@ import html
 
 import streamlit as st
 
-from src.config import DATA_DIR
+from src.config import DATA_DIR, ENABLE_LLM_STREAMING, MAX_CHAT_HISTORY_TURNS
 from src.loaders import load_documents
 from src.splitter import split_documents
 from src.vector_store import create_vector_store, reset_vector_store
-from src.rag_chain import ask_question
+from src.rag_chain import ask_question, ask_question_events
 
 
 st.set_page_config(
@@ -470,6 +470,32 @@ def render_assistant_message(message: dict) -> None:
         st.info("표시할 참고 자료가 없습니다.")
 
 
+def _prior_chat_history_for_rag(
+    chat_history: list[dict],
+    current_question: str,
+) -> list[dict]:
+    """현재 질문을 제외한 이전 user/assistant 메시지."""
+    prior: list[dict] = []
+
+    for message in chat_history:
+        role = message.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = (message.get("content") or "").strip()
+        if not content:
+            continue
+        prior.append({"role": role, "content": content})
+
+    if (
+        prior
+        and prior[-1]["role"] == "user"
+        and prior[-1]["content"].strip() == current_question.strip()
+    ):
+        prior = prior[:-1]
+
+    return prior[-(MAX_CHAT_HISTORY_TURNS * 2) :]
+
+
 def render_empty_chat() -> None:
     st.markdown(
         """
@@ -493,7 +519,6 @@ def render_empty_chat() -> None:
 
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
-
 
 with st.sidebar:
     st.header("설정")
@@ -641,7 +666,33 @@ if prompt:
     with st.chat_message("assistant"):
         with st.spinner("답변을 생성하는 중입니다..."):
             try:
-                result = ask_question(prompt, answer_mode)
+                prior_history = _prior_chat_history_for_rag(
+                    st.session_state["chat_history"],
+                    prompt,
+                )
+
+                if ENABLE_LLM_STREAMING:
+                    result = None
+                    stream_placeholder = st.empty()
+                    stream_parts: list[str] = []
+                    for event in ask_question_events(
+                        prompt,
+                        answer_mode,
+                        chat_history=prior_history,
+                    ):
+                        if event["type"] == "token":
+                            stream_parts.append(event["content"])
+                            stream_placeholder.markdown("".join(stream_parts))
+                        elif event["type"] == "final":
+                            result = event["data"]
+                    if result is None:
+                        raise RuntimeError("스트리밍 응답이 완료되지 않았습니다.")
+                else:
+                    result = ask_question(
+                        prompt,
+                        answer_mode,
+                        chat_history=prior_history,
+                    )
 
                 assistant_message = {
                     "role": "assistant",

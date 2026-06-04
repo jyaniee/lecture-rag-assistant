@@ -11,3 +11,6 @@ chromadb
 pymupdf
 pypdf
 tiktoken
+docx2txt
+python-pptx
+rank-bm25
