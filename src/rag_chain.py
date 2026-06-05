@@ -5,18 +5,30 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from langchain_core.documents import Document
 
 from src.config import (
+    DEDUP_BY_PARENT,
+    ENABLE_AMBIGUOUS_QUERY_GUIDANCE,
     ENABLE_CONTEXT_COMPRESS,
     ENABLE_HYBRID_SEARCH,
     ENABLE_LLM_STREAMING,
     ENABLE_PARENT_CHILD,
+    ENABLE_QUERY_PREPROCESS,
     ENABLE_QUERY_REWRITE,
     ENABLE_RERANK,
+    ENABLE_THIN_CONTEXT_GUARD,
     FOLLOW_UP_SEARCH_K_MULTIPLIER,
+    MIN_PARENT_CONTENT_CHARS,
     RELEVANCE_SCORE_THRESHOLD,
     RETRIEVER_TOP_K,
 )
 from src.context_compress import compress_document_for_query
 from src.generator import build_prompt, format_chat_history_block, get_llm
+from src.query_preprocess import (
+    ambiguous_query_message,
+    assess_context_richness,
+    is_ambiguous_query,
+    preprocess_for_search,
+    thin_context_message,
+)
 from src.retriever import search_documents_with_score
 
 
@@ -49,6 +61,31 @@ def filter_relevant_doc_score_pairs(
     return [(doc, score) for doc, score in search_results if score <= threshold]
 
 
+PIPELINE_REJECTION_ANSWER = (
+    "제공된 강의자료에서 질문과 관련된 내용을 찾기 어렵습니다."
+)
+
+SUBJECT_REQUIRED_ANSWER = (
+    "검색할 과목이 지정되지 않았습니다. 과목을 선택한 뒤 다시 질문해 주세요."
+)
+
+
+def _parent_dedup_key(doc: Document) -> str:
+    meta = doc.metadata or {}
+    parent_id = meta.get("parent_id")
+    if parent_id:
+        return str(parent_id)
+    file_name = meta.get("file_name") or meta.get("source") or "unknown"
+    page = meta.get("page")
+    return f"{file_name}|{page}"
+
+
+def _parent_content_length(doc: Document) -> int:
+    meta = doc.metadata or {}
+    text = meta.get("parent_content") or doc.page_content or ""
+    return len(str(text).strip())
+
+
 def deduplicate_by_file(
     doc_score_pairs: List[Tuple[Document, float]],
 ) -> List[Document]:
@@ -63,6 +100,47 @@ def deduplicate_by_file(
     return [
         doc for doc, _ in sorted(best_per_file.values(), key=lambda item: item[1])
     ]
+
+
+def deduplicate_for_context(
+    doc_score_pairs: List[Tuple[Document, float]],
+    *,
+    max_docs: Optional[int] = None,
+) -> List[Document]:
+    """
+    context용 dedup.
+
+    DEDUP_BY_PARENT=true: 페이지(parent)당 best 1청크 — 같은 PDF 여러 슬라이드 허용.
+    짧은 제목-only parent는 풍부한 parent가 있으면 뒤로 밀거나 제외.
+    """
+    limit = max_docs if max_docs is not None else RETRIEVER_TOP_K
+
+    if DEDUP_BY_PARENT:
+        best_per_parent: Dict[str, Tuple[Document, float]] = {}
+        for doc, score in doc_score_pairs:
+            key = _parent_dedup_key(doc)
+            if key not in best_per_parent or score < best_per_parent[key][1]:
+                best_per_parent[key] = (doc, score)
+
+        ranked = sorted(
+            best_per_parent.values(),
+            key=lambda item: (item[1], -_parent_content_length(item[0])),
+        )
+        rich = [
+            (doc, score)
+            for doc, score in ranked
+            if _parent_content_length(doc) >= MIN_PARENT_CONTENT_CHARS
+        ]
+        if rich:
+            ranked = rich + [
+                (doc, score)
+                for doc, score in ranked
+                if _parent_content_length(doc) < MIN_PARENT_CONTENT_CHARS
+            ]
+
+        return [doc for doc, _ in ranked[:limit]]
+
+    return deduplicate_by_file(doc_score_pairs)[:limit]
 
 
 def normalize_chat_history(
@@ -85,33 +163,83 @@ def normalize_chat_history(
     return normalized
 
 
+def _assistant_was_rejected(content: str) -> bool:
+    text = (content or "").strip()
+    if not text:
+        return False
+    if text.startswith(PIPELINE_REJECTION_ANSWER):
+        return True
+    if "제공된 강의자료에서" in text and "찾기 어렵습니다" in text:
+        return True
+    return False
+
+
+def _is_standalone_question(question: str) -> bool:
+    """완결된 질문이면 query rewrite 대상에서 제외합니다."""
+    q = question.strip()
+    if len(q) > 60:
+        return True
+    if re.search(r"[?？]$", q):
+        return True
+    if re.search(
+        r"(설명|알려|정리|요약|차이|원리|이유|방법|뜻|의미|무엇|뭐야|어떻|왜|언제|증명|비교)",
+        q,
+    ):
+        return True
+    if len(re.findall(r"[\w가-힣]+", q)) >= 5:
+        return True
+    return False
+
+
+def _find_last_user_for_rewrite(history: List[Dict[str, Any]]) -> Optional[str]:
+    """거부된 턴의 user 질문은 rewrite 맥락에서 제외합니다."""
+    for idx in range(len(history) - 1, -1, -1):
+        msg = history[idx]
+        if msg["role"] != "user":
+            continue
+
+        next_msg = history[idx + 1] if idx + 1 < len(history) else None
+        if next_msg and next_msg["role"] == "assistant":
+            if _assistant_was_rejected(next_msg["content"]):
+                continue
+
+        return msg["content"]
+
+    return None
+
+
 def build_search_query(
     question: str,
     chat_history: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """
     2차 RAG: 후속 질문 검색 품질 보강.
-    이전 user 발화와 현재 질문을 합쳐 검색 쿼리를 만듭니다.
+    짧고 애매한 후속만 이전 user와 합칩니다.
     """
     question = question.strip()
     history = normalize_chat_history(chat_history)
 
     if not ENABLE_QUERY_REWRITE or not history:
-        return question
+        return _finalize_search_query(question)
 
-    last_user = None
-    for msg in reversed(history):
-        if msg["role"] == "user":
-            last_user = msg["content"]
-            break
+    if _is_standalone_question(question):
+        return _finalize_search_query(question)
 
+    last_user = _find_last_user_for_rewrite(history)
     if not last_user or last_user == question:
-        return question
+        return _finalize_search_query(question)
 
     if len(question) <= 60:
-        return f"{last_user} {question}".strip()
+        merged = f"{last_user} {question}".strip()
+        return _finalize_search_query(merged)
 
-    return question
+    return _finalize_search_query(question)
+
+
+def _finalize_search_query(raw_query: str) -> str:
+    if not ENABLE_QUERY_PREPROCESS:
+        return raw_query.strip()
+    return preprocess_for_search(raw_query)
 
 
 def _effective_search_k(
@@ -129,6 +257,8 @@ def _effective_search_k(
 def _resolve_rejection(
     search_results: List[Tuple[Document, float]],
     threshold: float,
+    *,
+    max_context_docs: Optional[int] = None,
 ) -> tuple[List[Document], Optional[str]]:
     """검색 결과에서 LLM에 넣을 문서와 거부 사유를 결정합니다."""
     if not search_results:
@@ -141,9 +271,17 @@ def _resolve_rejection(
     if not filtered_pairs:
         return [], "no_chunks_passed_filter"
 
-    docs = deduplicate_by_file(filtered_pairs)
+    docs = deduplicate_for_context(
+        filtered_pairs,
+        max_docs=max_context_docs,
+    )
     if not docs:
         return [], "no_chunks_passed_filter"
+
+    if ENABLE_THIN_CONTEXT_GUARD:
+        richness = assess_context_richness(docs)
+        if not richness["is_sufficient"]:
+            return [], "thin_context"
 
     return docs, None
 
@@ -166,18 +304,61 @@ def run_retrieval(
         if relevance_threshold is not None
         else RELEVANCE_SCORE_THRESHOLD
     )
+    subject_key = (subject or "").strip()
+    if not subject_key:
+        retrieval = build_retrieval_meta(
+            top_k=effective_k,
+            threshold=threshold,
+            search_results=[],
+            context_docs=[],
+            rejection_reason="subject_required",
+            subject=None,
+        )
+        return {
+            "is_rejected": True,
+            "rejection_reason": "subject_required",
+            "context_docs": [],
+            "debug_scores": [],
+            "retrieval": retrieval,
+        }
+
     history = normalize_chat_history(chat_history)
-    search_query = build_search_query(question, history)
+    search_query_raw = build_search_query(question, history)
+    search_query = search_query_raw
+
+    if ENABLE_AMBIGUOUS_QUERY_GUIDANCE and is_ambiguous_query(question):
+        retrieval = build_retrieval_meta(
+            top_k=effective_k,
+            threshold=threshold,
+            search_results=[],
+            context_docs=[],
+            rejection_reason="ambiguous_query",
+            search_query=search_query,
+            search_query_raw=search_query_raw,
+            subject=subject_key,
+        )
+        return {
+            "is_rejected": True,
+            "rejection_reason": "ambiguous_query",
+            "context_docs": [],
+            "debug_scores": [],
+            "retrieval": retrieval,
+        }
+
     search_k = _effective_search_k(effective_k, history)
 
     search_results = search_documents_with_score(
         search_query,
         k=search_k,
-        subject=subject,
+        subject=subject_key,
         file_name=file_name,
     )
 
-    context_docs, rejection_reason = _resolve_rejection(search_results, threshold)
+    context_docs, rejection_reason = _resolve_rejection(
+        search_results,
+        threshold,
+        max_context_docs=effective_k,
+    )
 
     debug_scores = [
         {
@@ -200,7 +381,10 @@ def run_retrieval(
             context_docs=context_docs,
             rejection_reason=rejection_reason,
             search_query=search_query,
+            search_query_raw=search_query_raw,
             search_k_used=search_k,
+            context_richness=assess_context_richness(context_docs),
+            subject=subject_key,
         ),
     }
 
@@ -213,10 +397,14 @@ def build_retrieval_meta(
     context_docs: List[Document],
     rejection_reason: Optional[str],
     search_query: Optional[str] = None,
+    search_query_raw: Optional[str] = None,
     search_k_used: Optional[int] = None,
+    context_richness: Optional[Dict[str, Any]] = None,
+    subject: Optional[str] = None,
 ) -> Dict[str, Any]:
     best_score = search_results[0][1] if search_results else None
     return {
+        "subject": subject,
         "top_k": top_k,
         "search_k_used": search_k_used or top_k,
         "threshold": threshold,
@@ -225,11 +413,17 @@ def build_retrieval_meta(
         "best_score": best_score,
         "rejection_reason": rejection_reason,
         "search_query": search_query,
+        "search_query_raw": search_query_raw or search_query,
         "query_rewrite_enabled": ENABLE_QUERY_REWRITE,
+        "query_preprocess_enabled": ENABLE_QUERY_PREPROCESS,
+        "ambiguous_guidance_enabled": ENABLE_AMBIGUOUS_QUERY_GUIDANCE,
+        "thin_context_guard_enabled": ENABLE_THIN_CONTEXT_GUARD,
         "hybrid_enabled": ENABLE_HYBRID_SEARCH,
         "rerank_enabled": ENABLE_RERANK,
         "parent_child_enabled": ENABLE_PARENT_CHILD,
         "context_compress_enabled": ENABLE_CONTEXT_COMPRESS,
+        "dedup_by_parent": DEDUP_BY_PARENT,
+        "context_richness": context_richness,
     }
 
 
@@ -335,13 +529,24 @@ def format_sources(documents: List[Document]) -> List[Dict[str, Any]]:
     return sources
 
 
+def _rejection_answer_for_reason(reason: Optional[str]) -> str:
+    if reason == "subject_required":
+        return SUBJECT_REQUIRED_ANSWER
+    if reason == "ambiguous_query":
+        return ambiguous_query_message()
+    if reason == "thin_context":
+        return thin_context_message()
+    return PIPELINE_REJECTION_ANSWER
+
+
 def _rejected_answer_dict(
     answer_mode: str,
     debug_scores: List[Dict[str, Any]],
     retrieval: Dict[str, Any],
 ) -> Dict[str, Any]:
+    reason = retrieval.get("rejection_reason")
     return {
-        "answer": "제공된 강의자료에서 질문과 관련된 내용을 찾기 어렵습니다.",
+        "answer": _rejection_answer_for_reason(reason),
         "sources": [],
         "answer_mode": answer_mode,
         "is_rejected": True,

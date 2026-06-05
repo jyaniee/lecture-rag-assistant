@@ -3,10 +3,10 @@
 
 터미널:
   python -m src.quality_experiments
-  python -m src.quality_experiments --probe-only
-  python -m src.quality_experiments --sweep-threshold
-  python -m src.quality_experiments --sweep-top-k
-  python -m src.quality_experiments --out reports/quality.json
+  python -m src.quality_experiments --probe-only --subject 고급인공지능
+  python -m src.quality_experiments --sweep-threshold --subject 고급인공지능
+  python -m src.quality_experiments --sweep-top-k --subject 고급인공지능
+  python -m src.quality_experiments --out reports/quality.json --subject 고급인공지능
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from src.config import RELEVANCE_SCORE_THRESHOLD, RETRIEVER_TOP_K
 from src.rag_chain import ask_question, run_retrieval
+from src.vector_store import list_indexed_subjects
 
 
 QUALITY_TEST_CASES: List[Dict[str, Any]] = [
@@ -64,6 +65,18 @@ DEFAULT_THRESHOLD_CANDIDATES = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 DEFAULT_TOP_K_CANDIDATES = [2, 3, 4, 5, 6]
 
 
+def resolve_experiment_subject(subject: Optional[str] = None) -> str:
+    """품질 실험용 과목. --subject 명시 필수 (자동 선택 없음)."""
+    if subject and subject.strip():
+        return subject.strip()
+
+    indexed = list_indexed_subjects()
+    hint = f" (인덱스 과목: {', '.join(indexed)})" if indexed else ""
+    raise ValueError(
+        f"--subject 가 필요합니다. 예: --subject 고급인공지능{hint}"
+    )
+
+
 def _evaluate_case(result: Dict[str, Any], expect_rejected: Optional[bool]) -> str:
     if expect_rejected is None:
         return "manual"
@@ -98,18 +111,21 @@ def run_quality_experiments(
     answer_mode: str = "기본 Q&A",
     cases: Optional[List[Dict[str, Any]]] = None,
     *,
+    subject: Optional[str] = None,
     probe_only: bool = False,
     relevance_threshold: Optional[float] = None,
     top_k: Optional[int] = None,
 ) -> Dict[str, Any]:
     """품질 실험을 실행하고 요약 dict를 반환합니다."""
     cases = cases or QUALITY_TEST_CASES
+    subject_key = resolve_experiment_subject(subject)
     results: List[Dict[str, Any]] = []
 
     for case in cases:
         if probe_only:
             result = run_retrieval(
                 case["question"],
+                subject=subject_key,
                 top_k=top_k,
                 relevance_threshold=relevance_threshold,
             )
@@ -118,6 +134,7 @@ def run_quality_experiments(
             result = ask_question(
                 case["question"],
                 answer_mode,
+                subject=subject_key,
                 top_k=top_k,
                 relevance_threshold=relevance_threshold,
             )
@@ -130,6 +147,7 @@ def run_quality_experiments(
 
     return {
         "mode": "probe" if probe_only else "full",
+        "subject": subject_key,
         "answer_mode": answer_mode,
         "relevance_threshold": relevance_threshold or RELEVANCE_SCORE_THRESHOLD,
         "top_k": top_k or RETRIEVER_TOP_K,
@@ -144,6 +162,8 @@ def run_quality_experiments(
 def run_threshold_sweep(
     candidates: Optional[List[float]] = None,
     cases: Optional[List[Dict[str, Any]]] = None,
+    *,
+    subject: Optional[str] = None,
 ) -> Dict[str, Any]:
     """LLM 없이 threshold 후보별 자동 판정(pass/fail) 요약."""
     candidates = candidates or DEFAULT_THRESHOLD_CANDIDATES
@@ -154,6 +174,7 @@ def run_threshold_sweep(
     for threshold in candidates:
         report = run_quality_experiments(
             cases=auto_cases,
+            subject=subject,
             probe_only=True,
             relevance_threshold=threshold,
         )
@@ -182,6 +203,7 @@ def run_top_k_sweep(
     candidates: Optional[List[int]] = None,
     cases: Optional[List[Dict[str, Any]]] = None,
     *,
+    subject: Optional[str] = None,
     relevance_threshold: Optional[float] = None,
 ) -> Dict[str, Any]:
     """LLM 없이 top_k 후보별 context_chunk_count·거부율 요약."""
@@ -192,6 +214,7 @@ def run_top_k_sweep(
     for k in candidates:
         report = run_quality_experiments(
             cases=cases,
+            subject=subject,
             probe_only=True,
             top_k=k,
             relevance_threshold=relevance_threshold,
@@ -260,8 +283,8 @@ def _print_summary(report: Dict[str, Any]) -> None:
 
     print(f"=== 품질 실험 ({report.get('mode', 'full')}) ===")
     print(
-        f"threshold={report.get('relevance_threshold')} top_k={report.get('top_k')} "
-        f"total={report['total']} pass={report['passed']} "
+        f"subject={report.get('subject')} threshold={report.get('relevance_threshold')} "
+        f"top_k={report.get('top_k')} total={report['total']} pass={report['passed']} "
         f"fail={report['failed']} manual={report['manual_review']}"
     )
     for row in report["results"]:
@@ -280,14 +303,24 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=None, help="단일 실험 threshold")
     parser.add_argument("--top-k", type=int, default=None, help="단일 실험 top_k")
     parser.add_argument("--out", type=str, default=None, help="JSON 저장 경로")
+    parser.add_argument(
+        "--subject",
+        type=str,
+        required=True,
+        help="검색 대상 과목 (필수). 예: 고급인공지능",
+    )
     args = parser.parse_args()
 
     if args.sweep_threshold:
-        report = run_threshold_sweep()
+        report = run_threshold_sweep(subject=args.subject)
     elif args.sweep_top_k:
-        report = run_top_k_sweep(relevance_threshold=args.threshold)
+        report = run_top_k_sweep(
+            subject=args.subject,
+            relevance_threshold=args.threshold,
+        )
     else:
         report = run_quality_experiments(
+            subject=args.subject,
             probe_only=args.probe_only,
             relevance_threshold=args.threshold,
             top_k=args.top_k,

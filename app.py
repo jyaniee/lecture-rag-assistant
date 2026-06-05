@@ -4,9 +4,9 @@ import html
 import streamlit as st
 
 from src.config import DATA_DIR, ENABLE_LLM_STREAMING, MAX_CHAT_HISTORY_TURNS
-from src.loaders import load_documents
+from src.loaders import SUPPORTED_EXTENSIONS, load_documents
 from src.splitter import split_documents
-from src.vector_store import create_vector_store, reset_vector_store
+from src.vector_store import index_data_dir, list_indexed_subjects
 from src.rag_chain import ask_question, ask_question_events
 
 
@@ -363,10 +363,25 @@ def get_available_files() -> list[Path]:
         return files
 
     for file_path in data_path.rglob("*"):
-        if file_path.is_file() and file_path.suffix.lower() in [".pdf", ".txt"]:
+        if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
             files.append(file_path)
 
     return sorted(files)
+
+
+def get_available_subjects() -> list[str]:
+    """인덱스된 과목 우선, 없으면 data/raw 폴더 구조에서 추출."""
+    indexed = list_indexed_subjects()
+    if indexed:
+        return sorted(indexed)
+
+    grouped = group_files_by_subject(get_available_files())
+    return sorted(grouped.keys())
+
+
+def _clear_chat_on_subject_change() -> None:
+    st.session_state["chat_history"] = []
+
 
 def group_files_by_subject(files: list[Path]) -> dict[str, list[Path]]:
     """파일 목록을 과목 폴더 기준으로 그룹화한다."""
@@ -551,7 +566,7 @@ with st.sidebar:
                         unsafe_allow_html=True,
                     )
     else:
-        st.caption("아직 인식 가능한 PDF/TXT 자료가 없습니다.")
+        st.caption("아직 인식 가능한 강의자료(PDF/TXT/DOCX/PPTX)가 없습니다.")
 
     st.markdown("---")
     st.markdown("### 인덱싱")
@@ -564,24 +579,23 @@ with st.sidebar:
 
     if st.button("문서 인덱싱하기", use_container_width=True):
         with st.spinner("문서를 불러오고 벡터 DB를 생성하는 중입니다..."):
-            if reset_db:
-                reset_vector_store()
+            result = index_data_dir(DATA_DIR, reset=reset_db)
 
-            documents = load_documents(DATA_DIR)
-
-            if not documents:
-                st.warning(
-                    "불러올 문서가 없습니다. data/raw 폴더에 PDF 또는 TXT 파일을 넣어주세요."
+            if not result["success"]:
+                err = (
+                    result["errors"][0].get("message", "인덱싱에 실패했습니다.")
+                    if result["errors"]
+                    else "인덱싱에 실패했습니다."
                 )
+                st.warning(err)
             else:
+                documents = load_documents(DATA_DIR)
                 chunks = split_documents(documents)
-                create_vector_store(chunks)
-
                 st.session_state["chunks_preview"] = chunks[:5]
-                st.session_state["chunks_count"] = len(chunks)
-
+                st.session_state["chunks_count"] = result["chunk_count"]
                 st.success(
-                    f"인덱싱 완료: 원본 문서 {len(documents)}개, 청크 {len(chunks)}개"
+                    f"인덱싱 완료: 원본 문서 {result['document_count']}개, "
+                    f"청크 {result['chunk_count']}개"
                 )
 
     if "chunks_count" in st.session_state:
@@ -596,6 +610,29 @@ with st.sidebar:
                 st.markdown("---")
         else:
             st.caption("인덱싱 후 청크 미리보기가 표시됩니다.")
+
+    st.markdown("---")
+    st.markdown("### 학습 과목")
+
+    available_subjects = get_available_subjects()
+    if available_subjects:
+        if "selected_subject" not in st.session_state:
+            st.session_state["selected_subject"] = available_subjects[0]
+
+        current = st.session_state.get("selected_subject")
+        if current not in available_subjects:
+            st.session_state["selected_subject"] = available_subjects[0]
+
+        st.selectbox(
+            "검색·답변에 사용할 과목",
+            available_subjects,
+            key="selected_subject",
+            on_change=_clear_chat_on_subject_change,
+            help="선택한 과목 자료만 검색합니다. 과목을 바꾸면 대화가 초기화됩니다.",
+        )
+    else:
+        st.session_state["selected_subject"] = None
+        st.caption("인덱싱된 과목이 없습니다. 자료를 넣고 인덱싱해 주세요.")
 
     st.markdown("---")
     st.markdown("### 답변 설정")
@@ -623,18 +660,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+selected_subject = st.session_state.get("selected_subject")
+subject_label = html.escape(selected_subject) if selected_subject else "미선택"
+
 st.markdown(
-    """
+    f"""
     <div class="hero-card">
         <div class="hero-card-title">자료에 근거한 학습형 AI Assistant</div>
         <div class="hero-card-desc">
-            질문과 관련된 강의자료를 벡터 DB에서 검색한 뒤 답변합니다.
+            선택한 과목(<strong>{subject_label}</strong>) 자료만 검색해 답변합니다.
             검색 유사도가 낮은 질문은 답변을 제한하여 환각 가능성을 줄입니다.
         </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+if not selected_subject:
+    st.warning("사이드바에서 학습 과목을 선택하거나, 자료 인덱싱을 먼저 진행해 주세요.")
 
 
 if not st.session_state["chat_history"]:
@@ -654,72 +697,77 @@ prompt = st.chat_input(
 )
 
 if prompt:
-    user_message = {
-        "role": "user",
-        "content": prompt,
-    }
+    if not selected_subject:
+        st.error("과목이 선택되지 않아 질문을 처리할 수 없습니다. 사이드바에서 과목을 선택해 주세요.")
+    else:
+        user_message = {
+            "role": "user",
+            "content": prompt,
+        }
 
-    st.session_state["chat_history"].append(user_message)
+        st.session_state["chat_history"].append(user_message)
 
-    render_user_message(prompt)
+        render_user_message(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner("답변을 생성하는 중입니다..."):
-            try:
-                prior_history = _prior_chat_history_for_rag(
-                    st.session_state["chat_history"],
-                    prompt,
-                )
-
-                if ENABLE_LLM_STREAMING:
-                    result = None
-                    stream_placeholder = st.empty()
-                    stream_parts: list[str] = []
-                    for event in ask_question_events(
+        with st.chat_message("assistant"):
+            with st.spinner("답변을 생성하는 중입니다..."):
+                try:
+                    prior_history = _prior_chat_history_for_rag(
+                        st.session_state["chat_history"],
                         prompt,
-                        answer_mode,
-                        chat_history=prior_history,
-                    ):
-                        if event["type"] == "token":
-                            stream_parts.append(event["content"])
-                            stream_placeholder.markdown("".join(stream_parts))
-                        elif event["type"] == "final":
-                            result = event["data"]
-                    if result is None:
-                        raise RuntimeError("스트리밍 응답이 완료되지 않았습니다.")
-                else:
-                    result = ask_question(
-                        prompt,
-                        answer_mode,
-                        chat_history=prior_history,
                     )
 
-                assistant_message = {
-                    "role": "assistant",
-                    "content": result["answer"],
-                    "answer_mode": result.get("answer_mode", answer_mode),
-                    "sources": result.get("sources", []),
-                    "debug_scores": result.get("debug_scores", []),
-                    "is_rejected": result.get("is_rejected", False),
-                }
+                    if ENABLE_LLM_STREAMING:
+                        result = None
+                        stream_placeholder = st.empty()
+                        stream_parts: list[str] = []
+                        for event in ask_question_events(
+                            prompt,
+                            answer_mode,
+                            subject=selected_subject,
+                            chat_history=prior_history,
+                        ):
+                            if event["type"] == "token":
+                                stream_parts.append(event["content"])
+                                stream_placeholder.markdown("".join(stream_parts))
+                            elif event["type"] == "final":
+                                result = event["data"]
+                        if result is None:
+                            raise RuntimeError("스트리밍 응답이 완료되지 않았습니다.")
+                    else:
+                        result = ask_question(
+                            prompt,
+                            answer_mode,
+                            subject=selected_subject,
+                            chat_history=prior_history,
+                        )
 
-                render_assistant_message(assistant_message)
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": result["answer"],
+                        "answer_mode": result.get("answer_mode", answer_mode),
+                        "sources": result.get("sources", []),
+                        "debug_scores": result.get("debug_scores", []),
+                        "is_rejected": result.get("is_rejected", False),
+                    }
 
-                st.session_state["chat_history"].append(assistant_message)
+                    render_assistant_message(assistant_message)
 
-            except Exception as e:
-                error_message = "답변 생성 중 오류가 발생했습니다."
+                    st.session_state["chat_history"].append(assistant_message)
 
-                assistant_message = {
-                    "role": "assistant",
-                    "content": error_message,
-                    "answer_mode": answer_mode,
-                    "sources": [],
-                    "debug_scores": [],
-                    "is_rejected": True,
-                }
+                except Exception as e:
+                    error_message = "답변 생성 중 오류가 발생했습니다."
 
-                st.error(error_message)
-                st.exception(e)
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": error_message,
+                        "answer_mode": answer_mode,
+                        "sources": [],
+                        "debug_scores": [],
+                        "is_rejected": True,
+                    }
 
-                st.session_state["chat_history"].append(assistant_message)
+                    st.error(error_message)
+                    st.exception(e)
+
+                    st.session_state["chat_history"].append(assistant_message)

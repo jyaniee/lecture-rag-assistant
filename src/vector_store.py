@@ -190,7 +190,7 @@ def index_data_dir(
     reset: bool = True,
 ) -> Dict[str, Any]:
     """
-    data_dir 아래 PDF/TXT를 로드·청킹·인덱싱합니다.
+    data_dir 아래 PDF/TXT/DOCX/PPTX를 로드·청킹·인덱싱합니다.
     app.py 「문서 인덱싱하기」+ reset 체크박스와 동일 역할.
     """
     target_dir = data_dir or DATA_DIR
@@ -288,6 +288,23 @@ def ingest_uploaded_files(
     except Exception as e:
         result["errors"].append({"message": str(e)})
         return result
+
+
+def list_indexed_subjects() -> List[str]:
+    """Chroma에 인덱싱된 고유 subject(과목) 목록."""
+    if not _chroma_has_data():
+        return []
+
+    store = load_vector_store()
+    data = store._collection.get(include=["metadatas"])
+    metadatas = data.get("metadatas") or []
+
+    subjects: set[str] = set()
+    for meta in metadatas:
+        if meta and meta.get("subject"):
+            subjects.add(str(meta["subject"]))
+
+    return sorted(subjects)
 
 
 def list_indexed_documents() -> List[Dict[str, Any]]:

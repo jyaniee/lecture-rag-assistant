@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 
 from src.config import ENABLE_HYBRID_SEARCH, RRF_K
+from src.ko_tokenizer import tokenize
 from src.vector_store import get_indexed_chunks_for_search, invalidate_search_caches
 
 
@@ -20,7 +20,7 @@ def _cache_key(subject: Optional[str], file_name: Optional[str]) -> str:
 
 
 def _tokenize(text: str) -> List[str]:
-    return [t.lower() for t in re.findall(r"[\w가-힣]+", text) if len(t) > 1]
+    return tokenize(text)
 
 
 def _build_bm25_index(

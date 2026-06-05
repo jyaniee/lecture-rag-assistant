@@ -27,5 +27,9 @@ Thumbs.db
 data/uploads/*
 !data/uploads/.gitkeep
 
-#docs
-docs/
+# 품질 실험 산출물 (로컬·튜닝용)
+reports/
+
+# docs (팀 보고서만 예외로 커밋)
+docs/*
+!docs/TEAM_DELIVERY_REPORT.md
