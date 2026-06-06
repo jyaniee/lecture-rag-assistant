@@ -466,16 +466,17 @@ def render_user_message(content: str) -> None:
         unsafe_allow_html=True,
     )
 
-def render_assistant_message(message: dict) -> None:
+def render_assistant_message(message: dict, *, skip_body: bool = False) -> None:
     st.markdown(
         f'<div class="mode-badge">답변 모드: {html.escape(message.get("answer_mode", "기본 Q&A"))}</div>',
         unsafe_allow_html=True,
     )
 
-    if message.get("is_rejected"):
-        st.warning(message["content"])
-    else:
-        st.write(message["content"])
+    if not skip_body:
+        if message.get("is_rejected"):
+            st.warning(message["content"])
+        else:
+            st.write(message["content"])
 
     render_debug_scores(message.get("debug_scores", []))
 
@@ -717,9 +718,11 @@ if prompt:
                         prompt,
                     )
 
+                    stream_placeholder = st.empty()
+                    streamed_answer = False
+
                     if ENABLE_LLM_STREAMING:
                         result = None
-                        stream_placeholder = st.empty()
                         stream_parts: list[str] = []
                         for event in ask_question_events(
                             prompt,
@@ -734,6 +737,9 @@ if prompt:
                                 result = event["data"]
                         if result is None:
                             raise RuntimeError("스트리밍 응답이 완료되지 않았습니다.")
+                        streamed_answer = bool(stream_parts) and not result.get(
+                            "is_rejected", False
+                        )
                     else:
                         result = ask_question(
                             prompt,
@@ -751,7 +757,13 @@ if prompt:
                         "is_rejected": result.get("is_rejected", False),
                     }
 
-                    render_assistant_message(assistant_message)
+                    if streamed_answer:
+                        stream_placeholder.markdown(result["answer"])
+                        assistant_message["content"] = result["answer"]
+                        render_assistant_message(assistant_message, skip_body=True)
+                    else:
+                        stream_placeholder.empty()
+                        render_assistant_message(assistant_message)
 
                     st.session_state["chat_history"].append(assistant_message)
 
