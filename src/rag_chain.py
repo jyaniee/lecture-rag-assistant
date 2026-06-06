@@ -456,6 +456,34 @@ def prepare_context_documents(
     return prepared
 
 
+_INLINE_SOURCE_LINE = re.compile(
+    r"^\s*(?:출처|참고(?:\s*문서)?)\s*[：:]\s*.+",
+    re.IGNORECASE,
+)
+
+
+def strip_inline_source_citations(text: str) -> str:
+    """답변 본문 끝의 '출처: 참고 문서 N' 등 UI와 중복되는 인용 줄을 제거합니다."""
+    if not (text or "").strip():
+        return text or ""
+
+    lines = text.rstrip().splitlines()
+    while lines:
+        line = lines[-1].strip()
+        if not line:
+            lines.pop()
+            continue
+        if _INLINE_SOURCE_LINE.match(line):
+            lines.pop()
+            continue
+        if "참고" in line and "문서" in line and re.search(r"\d", line):
+            lines.pop()
+            continue
+        break
+
+    return "\n".join(lines).rstrip()
+
+
 def clean_preview_text(text: str, max_length: int = 500) -> str:
     """UI 표시용 문서 내용을 정리합니다."""
     remove_chars = ["■", "□", "▪", "▫", "●", "○", "◆", "◇", "•", "·"]
@@ -490,7 +518,7 @@ def format_documents(
         page_text = f"p.{page + 1}" if isinstance(page, int) else "페이지 정보 없음"
 
         formatted_chunks.append(
-            f"[참고 문서 {i}]\n"
+            f"[자료 {i}]\n"
             f"페이지: {page_text}\n"
             f"내용:\n"
             f"{doc.page_content}"
@@ -572,7 +600,7 @@ def _invoke_llm(
             "context": context,
         }
     )
-    return response.content
+    return strip_inline_source_citations(response.content)
 
 
 def ask_question(
@@ -687,7 +715,7 @@ def ask_question_events(
     yield {
         "type": "final",
         "data": {
-            "answer": "".join(parts),
+            "answer": strip_inline_source_citations("".join(parts)),
             "sources": format_sources(docs),
             "answer_mode": answer_mode,
             "is_rejected": False,
